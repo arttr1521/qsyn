@@ -374,15 +374,27 @@ size_t hamming_weight(
     return num_ones;
 }
 
+size_t qubit_hamming_weight(
+    PauliRotation const& rotation) {
+    auto const num_qubits = rotation.n_qubits();
+    auto num_qubit_has_ones         = 0ul;
+    for (auto i : std::views::iota(0ul, num_qubits)) {
+        if (rotation.pauli_product().is_z_set(i) || rotation.pauli_product().is_x_set(i)) {
+            num_qubit_has_ones++;
+        }
+    }
+    return num_qubit_has_ones;
+}
+
 // get the index of the rotation with the minimum number of 1s
 // A term of k ones can always be synthesized with k-1 CNOTs
-size_t get_best_rotation_idx(std::vector<PauliRotation> const& rotations) {
-    auto min_ones = SIZE_MAX;
+size_t get_best_rotation_idx(std::vector<PauliRotation> const& rotations, std::string const& strategy = "hamming_weight") {
+    auto min_cost = SIZE_MAX;
     auto best_idx = SIZE_MAX;
     for (auto const& [idx, rotation] : tl::views::enumerate(rotations)) {
-        auto const num_ones = hamming_weight(rotation);
-        if (num_ones < min_ones) {
-            min_ones = num_ones;
+        auto const cost = strategy == "hamming_weight" ? hamming_weight(rotation) : qubit_hamming_weight(rotation);
+        if (cost < min_cost) {
+            min_cost = cost;
             best_idx = idx;
         }
     }
@@ -394,6 +406,14 @@ size_t hamming_weight(
     size_t q_idx) {
     return std::ranges::count_if(rotations, [&](auto const& rotation) {
         return rotation.pauli_product().is_z_set(q_idx);
+    });
+}
+
+size_t qubit_hamming_weight(
+    std::vector<PauliRotation> const& rotations,
+    size_t q_idx) {
+    return std::ranges::count_if(rotations, [&](auto const& rotation) {
+        return rotation.pauli_product().is_z_set(q_idx) || rotation.pauli_product().is_x_set(q_idx);
     });
 }
 
@@ -535,6 +555,32 @@ MstSynthesisStrategy::synthesize(
     return qcir;
 }
 
+std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::vector<PauliRotation> const& rotations) const {
+    auto const num_qubits    = rotations.front().n_qubits();
+    auto const num_rotations = rotations.size();
+
+    if (num_qubits == 0) {
+        return qcir::QCir{0};
+    }
+
+    if (num_rotations == 0) {
+        return qcir::QCir{num_qubits};
+    }
+
+    auto copy_rotations = rotations;
+
+    auto qcir = qcir::QCir{copy_rotations.front().n_qubits()};
+
+    StabilizerTableau final_clifford{num_qubits};
+
+
+    return qcir;
+}
+
+std::optional<qcir::QCir> HeuristicPauliRotationsSynthesisStrategy::synthesize(std::vector<PauliRotation> const& rotations) const {
+    spdlog::error("Heuristic Synthesis Strategy is not implemented yet!!");
+    return std::nullopt;
+}
 /**
  * @brief convert a Pauli rotation to a QCir. This is a naive implementation.
  *

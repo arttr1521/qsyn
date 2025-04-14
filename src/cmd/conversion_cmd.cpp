@@ -236,7 +236,7 @@ Command convert_from_tableau_cmd(experimental::TableauMgr& tableau_mgr, qcir::QC
                 .help("specify the Clifford synthesis strategy (default: hopt).");
 
             to_qcir.add_argument<std::string>("-r", "--rotation")
-                .constraint(choices_allow_prefix({"naive", "tpar", "graysynth", "gstair", "mst"}))
+                .constraint(choices_allow_prefix({"naive", "tpar", "graysynth", "gstair", "mst", "pmst", "heuristic"}))
                 .default_value("naive")
                 .help("specify the rotation synthesis strategy (default: naive).");
         },
@@ -261,6 +261,8 @@ Command convert_from_tableau_cmd(experimental::TableauMgr& tableau_mgr, qcir::QC
                     if (is_prefix_of(rotation_strategy_str, "graysynth")) return std::make_unique<experimental::GraySynthPauliRotationsSynthesisStrategy>();
                     if (is_prefix_of(rotation_strategy_str, "gstair")) return std::make_unique<experimental::GraySynthPauliRotationsSynthesisStrategy>(experimental::GraySynthPauliRotationsSynthesisStrategy::Mode::staircase);
                     if (is_prefix_of(rotation_strategy_str, "mst")) return std::make_unique<experimental::MstSynthesisStrategy>();
+                    if (is_prefix_of(rotation_strategy_str, "pmst")) return std::make_unique<experimental::MSTPauliRotationsSynthesisStrategy>();
+                    if (is_prefix_of(rotation_strategy_str, "heuristic")) return std::make_unique<experimental::HeuristicPauliRotationsSynthesisStrategy>();
                     DVLAB_UNREACHABLE("Invalid rotation strategy!!");
                     return nullptr;
                 });
