@@ -388,11 +388,23 @@ size_t qubit_hamming_weight(
 
 // get the index of the rotation with the minimum number of 1s
 // A term of k ones can always be synthesized with k-1 CNOTs
-size_t get_best_rotation_idx(std::vector<PauliRotation> const& rotations, std::string const& strategy = "hamming_weight") {
+size_t get_best_rotation_idx(
+    std::vector<PauliRotation> const& rotations,
+    std::string const& strategy = "hamming_weight",
+    std::optional<std::unordered_set<size_t>> const& candidates = std::nullopt) {
     auto min_cost = SIZE_MAX;
     auto best_idx = SIZE_MAX;
+    
     for (auto const& [idx, rotation] : tl::views::enumerate(rotations)) {
-        auto const cost = strategy == "hamming_weight" ? hamming_weight(rotation) : qubit_hamming_weight(rotation);
+        // Skip if idx is not in candidates (if candidates is provided)
+        if (candidates.has_value() && !candidates.value().contains(idx)) {
+            continue;
+        }
+        
+        auto const cost = strategy == "hamming_weight" ? 
+            hamming_weight(rotation) : 
+            qubit_hamming_weight(rotation);
+            
         if (cost < min_cost) {
             min_cost = cost;
             best_idx = idx;
@@ -457,6 +469,78 @@ dvlab::Digraph<size_t, int> get_parity_graph(
     return g;
 }
 
+dvlab::Digraph<size_t, int> get_dependency_graph(std::vector<PauliRotation> const& rotations) {
+    size_t const num_rotations = rotations.size();
+    dvlab::Digraph<size_t, int> dag{num_rotations};
+    
+    // Build dependency edges based on non-commutative pairs
+    for (auto i : std::views::iota(0ul, num_rotations)) {
+        for (auto j : std::views::iota(i+1, num_rotations)) {
+            // if rotations[i] and rotations[j] don't commute, add an edge from i to j
+            if (!is_commutative(rotations[i], rotations[j])) {
+                dag.add_edge(i, j);
+                // spdlog::info("Adding edge {} -> {}", i, j);
+            }
+        }
+    }
+    
+    // Perform transitive reduction to minimize edges
+    dag.transitive_reduction();
+    return dag;
+}
+
+// Add the new function before get_dependency_graph
+void apply_mst_cxs(dvlab::Digraph<size_t, int> const& mst, size_t root, 
+                   std::vector<PauliRotation>& rotations, qcir::QCir& qcir, 
+                   StabilizerTableau& final_clifford) {
+    
+    auto const add_cx = [&](size_t ctrl, size_t targ) {
+        for (auto& rot : rotations) {
+            rot.cx(ctrl, targ);
+        }
+        qcir.append(qcir::CXGate(), {ctrl, targ});
+        final_clifford.prepend_cx(ctrl, targ);
+    };
+    
+    // post-order traversal to add CXs
+    std::stack<size_t> stack;
+    std::vector<size_t> post_order_rev;
+
+    stack.push(root);
+    spdlog::info("Stack pushed");
+
+    // First phase: collect nodes in post-order
+    while (!stack.empty()) {
+        auto const v = stack.top();
+        stack.pop();
+        spdlog::info("Post order rev pushing {}", v);
+        post_order_rev.push_back(v);
+
+        for (auto const& n : mst.out_neighbors(v)) {
+            spdlog::info("Stack pushing {}", n);
+            stack.push(n);
+            spdlog::info("Stack pushed {}", n);
+        }
+    }
+    spdlog::info("Stack popped");
+    // Second phase: apply CX gates in reverse post-order
+    while (!post_order_rev.empty()) {
+        auto const v = post_order_rev.back();
+        post_order_rev.pop_back();
+        spdlog::info("Post order rev popped");
+        if (mst.in_degree(v) == 1) {
+            auto const pred = *mst.in_neighbors(v).begin();
+            add_cx(v, pred);
+        } else {
+            DVLAB_ASSERT(
+                mst.in_degree(v) == 0 && v == root,
+                "The node with no incoming edges should be the root");
+        }
+        spdlog::info("Applied CX");
+    }
+    spdlog::info("Applied MST");
+}
+
 }  // namespace
 
 std::optional<qcir::QCir>
@@ -474,18 +558,8 @@ MstSynthesisStrategy::synthesize(
     }
 
     auto copy_rotations = rotations;
-
     auto qcir = qcir::QCir{copy_rotations.front().n_qubits()};
-
     StabilizerTableau final_clifford{num_qubits};
-
-    auto const add_cx = [&](size_t ctrl, size_t targ) {
-        for (auto& rot : copy_rotations) {
-            rot.cx(ctrl, targ);
-        }
-        qcir.append(qcir::CXGate(), {ctrl, targ});
-        final_clifford.prepend_cx(ctrl, targ);
-    };
 
     // checks if all rotations are diagonal
     if (!std::ranges::all_of(rotations, &PauliRotation::is_diagonal)) {
@@ -505,44 +579,14 @@ MstSynthesisStrategy::synthesize(
         auto const [mst, root] =
             dvlab::minimum_spanning_arborescence(parity_graph);
 
-        // post-order traversal to add CXs
-        std::stack<size_t> stack;
-        std::vector<size_t> post_order_rev;
-
-        stack.push(root);
-
-        while (!stack.empty()) {
-            auto const v = stack.top();
-            stack.pop();
-            post_order_rev.push_back(v);
-
-            for (auto const& n : mst.out_neighbors(v)) {
-                stack.push(n);
-            }
-        }
-
-        while (!post_order_rev.empty()) {
-            auto const v = post_order_rev.back();
-            post_order_rev.pop_back();
-
-            // get the predecessor of v
-
-            if (mst.in_degree(v) == 1) {
-                auto const pred = *mst.in_neighbors(v).begin();
-                add_cx(v, pred);
-            } else {
-                DVLAB_ASSERT(
-                    mst.in_degree(v) == 0 && v == root,
-                    "The node with no incoming edges should be the root");
-            }
-        }
+        // Use the modularized function
+        apply_mst_cxs(mst, root, copy_rotations, qcir, final_clifford);
 
         // add the rotation at the root
         qcir.append(qcir::PZGate(best_rotation.phase()), {root});
     }
 
     // synthesize the final clifford
-
     auto const final_clifford_circ = to_qcir(
         final_clifford,
         AGSynthesisStrategy{});
@@ -568,11 +612,79 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
     }
 
     auto copy_rotations = rotations;
-
     auto qcir = qcir::QCir{copy_rotations.front().n_qubits()};
-
     StabilizerTableau final_clifford{num_qubits};
 
+    auto dag = get_dependency_graph(rotations);
+
+    while (!copy_rotations.empty()) {
+        // get the first layer rotations
+        std::unordered_set<size_t> first_layer_rotations;
+        for (auto i : std::views::iota(0ul, num_rotations)) {
+            if (dag.in_degree(i) == 0) {
+                first_layer_rotations.insert(i);
+            }
+        }
+        
+        // Format set elements for logging
+        std::string first_layer_str;
+        for (auto const& idx : first_layer_rotations) {
+            first_layer_str += fmt::format("{} ", idx);
+        }
+        spdlog::info("First layer rotations: {}", first_layer_str);
+        
+        auto const best_rotation_idx = get_best_rotation_idx(copy_rotations, "qubit_hamming_weight", first_layer_rotations);
+        spdlog::info("Best rotation idx: {}", best_rotation_idx);
+        std::swap(copy_rotations[best_rotation_idx], copy_rotations.back());
+        spdlog::info("Swapped");
+        auto const best_rotation = std::move(copy_rotations.back());
+        spdlog::info("Best rotation: {}", best_rotation);
+
+        // apply Si;Hi if Zi & Xi, apply Hi if -Z & iXi
+        for (auto i: std::views::iota(0ul, num_qubits)) {
+            spdlog::info("Applying Si;Hi or Hi to qubit {}", i);
+            if (best_rotation.pauli_product().is_x_set(i)) {
+                if (best_rotation.pauli_product().is_z_set(i)) {
+                    spdlog::info("before    Applying Si");
+                    qcir.append(qcir::SGate(), {i});
+                    spdlog::info("Applied Si");
+                    final_clifford.prepend_s(i);
+                    for(auto& rot: copy_rotations) { 
+                        rot.s(i);
+                    }
+                }
+                spdlog::info("before    Applying Hi");
+                qcir.append(qcir::HGate(), {i});
+                spdlog::info("Applied Hi");
+                final_clifford.prepend_h(i);
+                spdlog::info("before    Applying Hi to all rotations");
+                spdlog::info("copy_rotations size: {}", copy_rotations.size());
+                for(auto& rot: copy_rotations) {
+                    spdlog::info("before    Applying Hi to rotation {}", rot);
+                    rot.h(i);
+                }
+                spdlog::info("Applied Hi to all rotations");
+            }
+        }
+        spdlog::info("Applied Si;Hi and Hi");
+
+
+        auto const parity_graph = get_parity_graph(copy_rotations, std::move(copy_rotations.back()));
+        auto const [mst, root] = dvlab::minimum_spanning_arborescence(parity_graph);
+        copy_rotations.pop_back();
+        
+        apply_mst_cxs(mst, root, copy_rotations, qcir, final_clifford);
+
+        // add the rotation at the root
+        qcir.append(qcir::PZGate(best_rotation.phase()), {root});
+    }
+
+    // synthesize the final clifford
+    auto const final_clifford_circ = to_qcir(final_clifford, AGSynthesisStrategy{});
+    if (!final_clifford_circ) {
+        return std::nullopt;
+    }
+    qcir.compose(*final_clifford_circ);
 
     return qcir;
 }

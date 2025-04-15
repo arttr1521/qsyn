@@ -6,6 +6,10 @@
 #include <cstddef>
 #include <ranges>
 #include <type_traits>
+#include <optional>
+#include <unordered_set>
+#include <stack>
+#include <vector>
 
 #include "util/ordered_hashmap.hpp"
 #include "util/ordered_hashset.hpp"
@@ -191,6 +195,18 @@ public:
         }
     }
 
+    // Print graph info
+    void print_graph() const {
+        fmt::print("Graph has {} vertices and {} edges\n", num_vertices(), num_edges());
+        for (auto v : vertices()) {
+            auto neighbors = out_neighbors(v);
+            fmt::print("Vertex {} has {} out-neighbors\n", v, out_degree(v));
+            for (auto n : neighbors) {
+                fmt::print("  Neighbor: {}\n", n);
+            }
+        }
+    }
+    
     // TODO: add correct edge range for no-edge-attr case
 
     auto in_edges(Vertex v) const {
@@ -299,6 +315,54 @@ public:
 
     bool operator!=(Digraph const& other) const {
         return !(*this == other);
+    }
+
+    void transitive_reduction() {
+        // Step 1: Compute descendants for each vertex.
+        std::unordered_map<Vertex, std::unordered_set<Vertex>> descendants;
+        for (Vertex v : vertices()) {
+            std::unordered_set<Vertex> vis;
+            std::stack<Vertex> s;
+            // Push all direct out-neighbors of v.
+            for (Vertex n : _out_neighbors[v]) {
+                s.push(n);
+            }
+            while (!s.empty()) {
+                Vertex cur = s.top();
+                s.pop();
+                if (!vis.insert(cur).second) continue;
+                for (Vertex n : _out_neighbors[cur]) {
+                    s.push(n);
+                }
+            }
+            descendants[v] = std::move(vis);
+        }
+
+        // Step 2: For each vertex, determine which out-edges are redundant.
+        std::vector<Edge> to_remove;
+        for (Vertex u : vertices()) {
+            // Create a copy of out-neighbors of u
+            auto preserved = _out_neighbors[u];
+            // For each out-neighbor v, remove all nodes reachable from v (transitively)
+            // from the set of preserved edges.
+            for (Vertex v : _out_neighbors[u]) {
+                // Subtract descendants of v from preserved.
+                for (Vertex w : descendants[v]) {
+                    preserved.erase(w);
+                }
+            }
+            // Any direct edge from u that is not in 'preserved' is redundant.
+            for (Vertex v : _out_neighbors[u]) {
+                if (preserved.find(v) == preserved.end()) {
+                    to_remove.push_back({u, v});
+                }
+            }
+        }
+
+        // Step 3: Remove all redundant edges from the graph.
+        for (auto const& e : to_remove) {
+            remove_edge(e);
+        }
     }
 
 private:
