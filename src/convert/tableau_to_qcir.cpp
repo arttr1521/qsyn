@@ -415,17 +415,9 @@ size_t get_best_rotation_idx(
 
 size_t hamming_weight(
     std::vector<PauliRotation> const& rotations,
-    size_t q_idx) {
+    size_t q_idx, bool is_Z = true) {
     return std::ranges::count_if(rotations, [&](auto const& rotation) {
-        return rotation.pauli_product().is_z_set(q_idx);
-    });
-}
-
-size_t qubit_hamming_weight(
-    std::vector<PauliRotation> const& rotations,
-    size_t q_idx) {
-    return std::ranges::count_if(rotations, [&](auto const& rotation) {
-        return rotation.pauli_product().is_z_set(q_idx) || rotation.pauli_product().is_x_set(q_idx);
+        return is_Z ? rotation.pauli_product().is_z_set(q_idx) : rotation.pauli_product().is_x_set(q_idx);
     });
 }
 
@@ -439,13 +431,24 @@ size_t hamming_distance(
     });
 }
 
+size_t cx_weight(
+    std::vector<PauliRotation> const& rotations,
+    size_t q1_idx,
+    size_t q2_idx) {
+    
+    size_t x_distance = std::ranges::count_if(rotations, [&](auto const& rotation){
+        return rotation.pauli_product().is_x_set(q1_idx) != rotation.pauli_product().is_x_set(q2_idx);
+    });
+
+    return x_distance + hamming_distance(rotations, q1_idx, q2_idx);
+}
 dvlab::Digraph<size_t, int> get_parity_graph(
     std::vector<PauliRotation> const& rotations,
-    PauliRotation const& target_rotation) {
+    PauliRotation const& target_rotation,
+    std::string const& strategy = "hamming_weight") {
     auto const num_qubits = rotations.front().n_qubits();
 
     auto g = dvlab::Digraph<size_t, int>{};
-
     auto qubit_vec = std::vector<size_t>{};
 
     for (auto i : std::views::iota(0ul, num_qubits)) {
@@ -454,14 +457,21 @@ dvlab::Digraph<size_t, int> get_parity_graph(
             qubit_vec.push_back(i);
         }
     }
+    spdlog::info("Qubit vec size {}", qubit_vec.size());
+    // get the weight of the edge i if strategy is "hamming_weight"
+    // otherwise, get the weight of the cx operation between i and j
+    auto const get_weight = [&](size_t i, size_t j) {
+        return strategy == "qubit_hamming_weight" 
+            ? hamming_weight(rotations, i, true) + hamming_weight(rotations, j, false)
+            : hamming_weight(rotations, i, true);
+    };
 
     for (auto const& [i, j] : dvlab::combinations<2>(qubit_vec)) {
-        auto const dist =
-            gsl::narrow_cast<int>(hamming_distance(rotations, i, j));
-        auto const weight_i =
-            gsl::narrow_cast<int>(hamming_weight(rotations, i));
-        auto const weight_j =
-            gsl::narrow_cast<int>(hamming_weight(rotations, j));
+        auto const dist = (strategy == "hamming_weight") 
+            ? gsl::narrow_cast<int>(hamming_distance(rotations, i, j))
+            : gsl::narrow_cast<int>(cx_weight(rotations, i, j));
+        auto const weight_i = gsl::narrow_cast<int>(get_weight(i, j));
+        auto const weight_j = gsl::narrow_cast<int>(get_weight(j, i));
         g.add_edge(i, j, dist - weight_j - 1);
         g.add_edge(j, i, dist - weight_i - 1);
     }
@@ -507,22 +517,17 @@ void apply_mst_cxs(dvlab::Digraph<size_t, int> const& mst, size_t root,
     std::vector<size_t> post_order_rev;
 
     stack.push(root);
-    spdlog::info("Stack pushed");
 
     // First phase: collect nodes in post-order
     while (!stack.empty()) {
         auto const v = stack.top();
         stack.pop();
-        spdlog::info("Post order rev pushing {}", v);
         post_order_rev.push_back(v);
 
         for (auto const& n : mst.out_neighbors(v)) {
-            spdlog::info("Stack pushing {}", n);
             stack.push(n);
-            spdlog::info("Stack pushed {}", n);
         }
     }
-    spdlog::info("Stack popped");
     // Second phase: apply CX gates in reverse post-order
     while (!post_order_rev.empty()) {
         auto const v = post_order_rev.back();
@@ -536,9 +541,7 @@ void apply_mst_cxs(dvlab::Digraph<size_t, int> const& mst, size_t root,
                 mst.in_degree(v) == 0 && v == root,
                 "The node with no incoming edges should be the root");
         }
-        spdlog::info("Applied CX");
     }
-    spdlog::info("Applied MST");
 }
 
 }  // namespace
@@ -578,7 +581,7 @@ MstSynthesisStrategy::synthesize(
 
         auto const [mst, root] =
             dvlab::minimum_spanning_arborescence(parity_graph);
-
+        
         // Use the modularized function
         apply_mst_cxs(mst, root, copy_rotations, qcir, final_clifford);
 
@@ -631,47 +634,38 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
         for (auto const& idx : first_layer_rotations) {
             first_layer_str += fmt::format("{} ", idx);
         }
-        spdlog::info("First layer rotations: {}", first_layer_str);
+        // spdlog::info("First layer rotations: {}", first_layer_str);
         
         auto const best_rotation_idx = get_best_rotation_idx(copy_rotations, "qubit_hamming_weight", first_layer_rotations);
-        spdlog::info("Best rotation idx: {}", best_rotation_idx);
+        // spdlog::info("Best rotation idx: {}", best_rotation_idx);
+        
+        // Store the best rotation before moving it
+        auto best_rotation = copy_rotations[best_rotation_idx];
+        
+        // Move the best rotation to the back and remove it
         std::swap(copy_rotations[best_rotation_idx], copy_rotations.back());
-        spdlog::info("Swapped");
-        auto const best_rotation = std::move(copy_rotations.back());
-        spdlog::info("Best rotation: {}", best_rotation);
-
+        
         // apply Si;Hi if Zi & Xi, apply Hi if -Z & iXi
         for (auto i: std::views::iota(0ul, num_qubits)) {
-            spdlog::info("Applying Si;Hi or Hi to qubit {}", i);
             if (best_rotation.pauli_product().is_x_set(i)) {
                 if (best_rotation.pauli_product().is_z_set(i)) {
-                    spdlog::info("before    Applying Si");
                     qcir.append(qcir::SGate(), {i});
-                    spdlog::info("Applied Si");
                     final_clifford.prepend_s(i);
                     for(auto& rot: copy_rotations) { 
                         rot.s(i);
                     }
                 }
-                spdlog::info("before    Applying Hi");
                 qcir.append(qcir::HGate(), {i});
-                spdlog::info("Applied Hi");
                 final_clifford.prepend_h(i);
-                spdlog::info("before    Applying Hi to all rotations");
-                spdlog::info("copy_rotations size: {}", copy_rotations.size());
                 for(auto& rot: copy_rotations) {
-                    spdlog::info("before    Applying Hi to rotation {}", rot);
-                    rot.h(i);
+                    rot.h(i);     
                 }
-                spdlog::info("Applied Hi to all rotations");
             }
         }
-        spdlog::info("Applied Si;Hi and Hi");
-
-
-        auto const parity_graph = get_parity_graph(copy_rotations, std::move(copy_rotations.back()));
-        auto const [mst, root] = dvlab::minimum_spanning_arborescence(parity_graph);
+        best_rotation = std::move(copy_rotations.back());
         copy_rotations.pop_back();
+        auto const parity_graph = get_parity_graph(copy_rotations, best_rotation, "qubit_hamming_weight");
+        auto const [mst, root] = dvlab::minimum_spanning_arborescence(parity_graph);
         
         apply_mst_cxs(mst, root, copy_rotations, qcir, final_clifford);
 
