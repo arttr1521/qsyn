@@ -457,7 +457,6 @@ dvlab::Digraph<size_t, int> get_parity_graph(
             qubit_vec.push_back(i);
         }
     }
-    spdlog::info("Qubit vec size {}", qubit_vec.size());
     // get the weight of the edge i if strategy is "hamming_weight"
     // otherwise, get the weight of the cx operation between i and j
     auto const get_weight = [&](size_t i, size_t j) {
@@ -511,7 +510,6 @@ void apply_mst_cxs(dvlab::Digraph<size_t, int> const& mst, size_t root,
         qcir.append(qcir::CXGate(), {ctrl, targ});
         final_clifford.prepend_cx(ctrl, targ);
     };
-    
     // post-order traversal to add CXs
     std::stack<size_t> stack;
     std::vector<size_t> post_order_rev;
@@ -532,7 +530,6 @@ void apply_mst_cxs(dvlab::Digraph<size_t, int> const& mst, size_t root,
     while (!post_order_rev.empty()) {
         auto const v = post_order_rev.back();
         post_order_rev.pop_back();
-        spdlog::info("Post order rev popped");
         if (mst.in_degree(v) == 1) {
             auto const pred = *mst.in_neighbors(v).begin();
             add_cx(v, pred);
@@ -618,32 +615,33 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
     auto qcir = qcir::QCir{copy_rotations.front().n_qubits()};
     StabilizerTableau final_clifford{num_qubits};
 
-    auto dag = get_dependency_graph(rotations);
+    // create the index mapping
+    std::vector<size_t> index_mapping(num_rotations);  // current_idx -> original_idx
+    std::vector<size_t> reverse_mapping(num_rotations); // original_idx -> current_idx
+    for (size_t i = 0; i < num_rotations; ++i) {
+        index_mapping[i] = i;
+        reverse_mapping[i] = i;
+    }
+
+    auto dag = get_dependency_graph(copy_rotations);
 
     while (!copy_rotations.empty()) {
         // get the first layer rotations
         std::unordered_set<size_t> first_layer_rotations;
-        for (auto i : std::views::iota(0ul, num_rotations)) {
-            if (dag.in_degree(i) == 0) {
+        for (auto i : std::views::iota(0ul, copy_rotations.size())) {
+            if (dag.in_degree(index_mapping[i]) == 0) {
                 first_layer_rotations.insert(i);
             }
         }
-        
-        // Format set elements for logging
-        std::string first_layer_str;
-        for (auto const& idx : first_layer_rotations) {
-            first_layer_str += fmt::format("{} ", idx);
-        }
-        // spdlog::info("First layer rotations: {}", first_layer_str);
-        
+
         auto const best_rotation_idx = get_best_rotation_idx(copy_rotations, "qubit_hamming_weight", first_layer_rotations);
         // spdlog::info("Best rotation idx: {}", best_rotation_idx);
         
-        // Store the best rotation before moving it
+
+        size_t original_idx = index_mapping[best_rotation_idx];
+
         auto best_rotation = copy_rotations[best_rotation_idx];
-        
-        // Move the best rotation to the back and remove it
-        std::swap(copy_rotations[best_rotation_idx], copy_rotations.back());
+    
         
         // apply Si;Hi if Zi & Xi, apply Hi if -Z & iXi
         for (auto i: std::views::iota(0ul, num_qubits)) {
@@ -662,8 +660,18 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
                 }
             }
         }
-        best_rotation = std::move(copy_rotations.back());
-        copy_rotations.pop_back();
+        best_rotation = std::move(copy_rotations[best_rotation_idx]);
+        copy_rotations.erase(copy_rotations.begin() + best_rotation_idx);
+        dag.remove_vertex(index_mapping[best_rotation_idx]);
+        
+        // update the mapping
+        for (size_t i = 0; i < reverse_mapping.size(); ++i) {
+            if (reverse_mapping[i] > best_rotation_idx) {
+                reverse_mapping[i]--;
+            }
+        }
+        index_mapping.erase(index_mapping.begin() + best_rotation_idx);
+
         auto const parity_graph = get_parity_graph(copy_rotations, best_rotation, "qubit_hamming_weight");
         auto const [mst, root] = dvlab::minimum_spanning_arborescence(parity_graph);
         
@@ -671,6 +679,11 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
 
         // add the rotation at the root
         qcir.append(qcir::PZGate(best_rotation.phase()), {root});
+        // print copy_rotations
+        // spdlog::info("Copy rotations");
+        // for (auto const& rot : copy_rotations) {
+        //     spdlog::info("{}", rot.to_bit_string());
+        // }
     }
 
     // synthesize the final clifford
