@@ -199,12 +199,28 @@ public:
     void print_graph() const {
         fmt::print("Graph has {} vertices and {} edges\n", num_vertices(), num_edges());
         for (auto v : vertices()) {
-            auto neighbors = out_neighbors(v);
-            fmt::print("Vertex {} has {} out-neighbors\n", v, out_degree(v));
-            for (auto n : neighbors) {
-                fmt::print("  Neighbor: {}\n", n);
+            auto in_nbrs = in_neighbors(v);    
+            auto out_nbrs = out_neighbors(v);
+            fmt::print("Vertex {} has {} in-neighbors and {} out-neighbors\n", v, in_nbrs.size(), out_nbrs.size());
+            std::string in_nbrs_str = "";
+            std::string out_nbrs_str = "";
+            for (auto n : in_nbrs) {
+                in_nbrs_str += std::to_string(n) + " ";
             }
+            for (auto n : out_nbrs) {
+                out_nbrs_str += std::to_string(n) + " ";
+            }
+            fmt::print("  In-neighbors: {}\n", in_nbrs_str);
+            fmt::print("  Out-neighbors: {}\n", out_nbrs_str);
         }
+    }
+
+    void print_vertices_id() const {
+        fmt::print("Vertices: ");
+        for (auto v : vertices()) {
+            fmt::print("{} ", v);
+        }
+        fmt::print("\n");
     }
     
     // TODO: add correct edge range for no-edge-attr case
@@ -363,6 +379,55 @@ public:
         for (auto const& e : to_remove) {
             remove_edge(e);
         }
+    }
+
+    /**
+     * @brief Check if the graph has redundant edges that could be removed by transitive reduction
+     * @return true if no redundant edges are found, false otherwise
+     * @note Uses the same descendants-based approach as transitive_reduction()
+     */
+    bool check_transitive_reduction() const {
+        // Step 1: Compute descendants for each vertex
+        std::unordered_map<Vertex, std::unordered_set<Vertex>> descendants;
+        for (Vertex v : vertices()) {
+            std::unordered_set<Vertex> vis;
+            std::stack<Vertex> s;
+            
+            // Push all direct out-neighbors of v
+            for (Vertex n : out_neighbors(v)) {
+                s.push(n);
+            }
+            
+            // DFS to find all descendants
+            while (!s.empty()) {
+                Vertex cur = s.top();
+                s.pop();
+                if (!vis.insert(cur).second) continue;
+                for (Vertex n : out_neighbors(cur)) {
+                    s.push(n);
+                }
+            }
+            descendants[v] = std::move(vis);
+        }
+
+        // Step 2: Check each edge for redundancy
+        for (Vertex u : vertices()) {
+            auto preserved = out_neighbors(u);
+            // For each out-neighbor v, remove all nodes reachable from v
+            for (Vertex v : out_neighbors(u)) {
+                for (Vertex w : descendants[v]) {
+                    preserved.erase(w);
+                }
+            }
+            // Any direct edge from u that is not in 'preserved' is redundant
+            for (Vertex v : out_neighbors(u)) {
+                if (preserved.find(v) == preserved.end()) {
+                    return false;  // Found a redundant edge
+                }
+            }
+        }
+        
+        return true;  // No redundant edges found
     }
 
 private:
