@@ -512,15 +512,15 @@ dvlab::Digraph<size_t, int> get_dependency_graph(std::vector<PauliRotation> cons
     }
     // spdlog::info("Number of out degree of 0: {}", counter);
     // Perform transitive reduction to minimize edges
-    dag.transitive_reduction();
+    // dag.transitive_reduction();
 
-    if (check) {
-        if (!dag.check_transitive_reduction()) {
-            spdlog::error("Dependency graph is not transitive reduction");
-        } else {
-            spdlog::info("Dependency graph is transitive reduction");
-        }
-    }
+    // if (check) {
+    //     if (!dag.check_transitive_reduction()) {
+    //         spdlog::error("Dependency graph is not transitive reduction");
+    //     } else {
+    //         spdlog::info("Dependency graph is transitive reduction");
+    //     }
+    // }
     return dag;
 }
 
@@ -649,7 +649,7 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
     }
 
     auto dag = get_dependency_graph(copy_rotations);
-    dag.print_graph();
+    // dag.print_graph();
 
     size_t num_iterations = 0;
     while (!copy_rotations.empty()) {
@@ -667,11 +667,10 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
         for (auto const& rot : sorted) {
             layers += std::to_string(index_mapping[rot]) + " ";
         }
-        spdlog::info("First layer rotations");
-        spdlog::info("{}", layers);
+        // spdlog::info("First layer rotations");
+        // spdlog::info("{}", layers);
 
         auto const best_rotation_idx = get_best_rotation_idx(copy_rotations, "qubit_hamming_weight", first_layer_rotations);
-        spdlog::info("Best rotation idx: {}", best_rotation_idx);
         
 
         size_t best_vid = index_mapping[best_rotation_idx];
@@ -680,51 +679,37 @@ std::optional<qcir::QCir> MSTPauliRotationsSynthesisStrategy::synthesize(std::ve
     
         
         // apply Si;Hi if Zi & Xi, apply Hi if -Z & iXi
-        spdlog::debug("Best rotation: {}", best_rotation.to_string());
         for (auto i: std::views::iota(0ul, num_qubits)) {
             if (best_rotation.pauli_product().is_x_set(i)) {
                 if (best_rotation.pauli_product().is_z_set(i)) {
                     qcir.append(qcir::SGate(), {i});
-                    final_clifford.prepend_s(i);
+                    final_clifford.prepend_sdg(i);
                     for(auto& rot: copy_rotations) { 
                         rot.s(i);
                     }
-                    spdlog::debug("Apply S{}", i);
                 }
                 qcir.append(qcir::HGate(), {i});
                 final_clifford.prepend_h(i);
                 for(auto& rot: copy_rotations) {
                     rot.h(i);     
                 }
-                spdlog::debug("Apply H{}", i);
             }
         }
         best_rotation = copy_rotations[best_rotation_idx];
         // best_rotation = std::move(copy_rotations[best_rotation_idx]);
-        spdlog::debug("Best rotation after applying Si;Hi: {}", best_rotation.to_string());
         assert(best_rotation.is_diagonal());
         // copy_rotations.erase(copy_rotations.begin() + best_rotation_idx);
         dag.remove_vertex(best_vid);
-        spdlog::info("Remove vertex {}", best_vid);
-        // dag.print_vertices_id();
         index_mapping.erase(index_mapping.begin() + best_rotation_idx);
         auto const parity_graph = get_parity_graph(copy_rotations, best_rotation, "qubit_hamming_weight");
         auto const [mst, root] = dvlab::minimum_spanning_arborescence(parity_graph);
         
         apply_mst_cxs(mst, root, copy_rotations, qcir, final_clifford);
-        spdlog::debug("Best rotation after applying MST: {}", copy_rotations[best_rotation_idx].to_string());
         assert(is_valid(copy_rotations[best_rotation_idx]));
 
-        spdlog::info("--------------------------------");
         copy_rotations.erase(copy_rotations.begin() + best_rotation_idx);
         // add the rotation at the root
         qcir.append(qcir::PZGate(best_rotation.phase()), {root});
-        
-        // print copy_rotations
-        // spdlog::info("Copy rotations");
-        // for (auto const& rot : copy_rotations) {
-        //     spdlog::info("{}", rot.to_bit_string());
-        // }
     }
 
     // synthesize the final clifford
