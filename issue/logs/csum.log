@@ -1,0 +1,386 @@
+qsyn v0.7.0 - Copyright © 2022-2025, DVLab NTUEE.
+Licensed under Apache 2.0 License. Release build.
+qsyn> //!ARGS IN_QASM OUT_QASM OUT_QASM_BACKWARD
+qsyn> qcir read ${IN_QASM}
+
+qsyn> qcir print
+QCir (30 qubits, 420 gates, 168 2-qubits gates, 196 T-gates, 60 depths)
+
+qsyn> convert qcir tableau
+
+qsyn> tableau print
+Tableau (30 qubits, 1 Clifford segments, 196 Pauli rotations)
+
+qsyn> tableau optimize full
+
+qsyn> tableau print
+Tableau (30 qubits, 8 Clifford segments, 78 Pauli rotations)
+
+qsyn> usage
+Period time used : 1.5400 seconds
+Total time used  : 1.5400 seconds
+Total memory used: 5.2500 MiBs
+
+qsyn> tabl2qc -r mst -c hopt -l
+Note: lazy synthesis is not stable. Use at your own risk!!
+CX gate count in the last Clifford: 385
+
+qsyn> qc write issue/logs/lazy.qasm
+
+qsyn> qc2tabl
+
+qsyn> usage
+Period time used : 0.0100 seconds
+Total time used  : 1.5500 seconds
+Total memory used: 5.7500 MiBs
+
+qsyn> logger info
+[info]     Setting logger level to "info"
+
+qsyn> convert tableau qcir --rotation pmst -c ag
+[info]     Converting to Tableau 1 to QCir 2...
+[info]     CX gate count in the subtableau 0: 289
+[info]     [TIMER] Dependency graph construction: 384 us
+[info]     [TIMER]        is_commutative total 1 us
+[info]     [TIMER]        add_edge total 3 us
+[info]     [TIMER] Find first layer rotations: 0 us
+[info]     [TIMER] Find best rotation: 18 us
+[info]     [TIMER] Handle H/S gates: 44 us
+[info]     [TIMER] Remove vertex: 26 us
+[info]     [TIMER] Erase index mapping: 0 us
+[info]     [TIMER] Parity graph + min spanning arborescence: 131 us
+[info]     [TIMER] apply_mst_cxs: 167 us
+[info]     [TIMER] Erase rotation + add PZGate: 20 us
+[info]     [TIMER] Total while-iteration: 1671 us
+[info]     Number of CXs for row operations : 148
+[info]     CX gate count in the subtableau 1: 338
+[info]     Successfully created and checked out to QCir 2
+
+qsyn> logger off
+
+qsyn> usage
+Period time used : 0.0000 seconds
+Total time used  : 1.5500 seconds
+Total memory used: 6.0000 MiBs
+
+qsyn> qc list
+  0    csum_mux_9          
+  1                        TABL2QC
+★ 2                        TABL2QC ➔ QC2TABL ➔ TABL2QC
+
+qsyn> qc print
+QCir (30 qubits, 882 gates, 627 2-qubits gates, 78 T-gates, 475 depths)
+
+qsyn> qc write ${OUT_QASM}
+
+qsyn> logger info
+[info]     Setting logger level to "info"
+
+qsyn> convert tableau qcir --rotation pmst -c ag -b
+[info]     Converting to Tableau 1 to QCir 3...
+[info]     [TIMER] Dependency graph construction: 379 us
+[info]     [TIMER]        is_commutative total 0 us
+[info]     [TIMER]        add_edge total 3 us
+[info]     [TIMER] Find first layer rotations: 0 us
+[info]     [TIMER] Find best rotation: 19 us
+[info]     [TIMER] Handle H/S gates: 34 us
+[info]     [TIMER] Remove vertex: 32 us
+[info]     [TIMER] Erase index mapping: 0 us
+[info]     [TIMER] Parity graph + min spanning arborescence: 159 us
+[info]     [TIMER] apply_mst_cxs: 205 us
+[info]     [TIMER] Erase rotation + add PZGate: 14 us
+[info]     [TIMER] Total while-iteration: 1880 us
+[info]     Number of CXs for row operations : 146
+[info]     CX gate count in the initial Clifford: 122
+[info]     Successfully created and checked out to QCir 3
+
+qsyn> //logger off
+qsyn> qc write ${OUT_QASM_BACKWARD}
+
+qsyn> qc list
+  0    csum_mux_9          
+  1                        TABL2QC
+  2                        TABL2QC ➔ QC2TABL ➔ TABL2QC
+★ 3                        TABL2QC ➔ QC2TABL ➔ TABL2QC
+
+qsyn> qc print
+QCir (30 qubits, 483 gates, 268 2-qubits gates, 78 T-gates, 226 depths)
+
+qsyn> 
+qsyn> // eq check with tableau
+qsyn> qc eq 0 1
+[info]     Trying to verify equivalence via tableau optimization...
+[info]     1: Reduced the number of non-Clifford gates from 274 to 96.
+[info]     2: Reduced the number of non-Clifford gates from 96 to 0.
+[info]     3: Reduced the number of non-Clifford gates from 0 to 0.
+The two circuits are equivalent!!
+
+qsyn> qc eq 0 2
+[info]     Trying to verify equivalence via tableau optimization...
+[info]     1: Reduced the number of non-Clifford gates from 274 to 140.
+[info]     2: Reduced the number of non-Clifford gates from 140 to 140.
+[warn]     The number of qubits is too large to check equivalence via tensor contraction.
+[warn]     Please note that this may be a false negative.
+The two circuits are not equivalent!!
+
+qsyn> qc eq 0 3
+[info]     Trying to verify equivalence via tableau optimization...
+[info]     1: Reduced the number of non-Clifford gates from 274 to 140.
+[info]     2: Reduced the number of non-Clifford gates from 140 to 140.
+[warn]     The number of qubits is too large to check equivalence via tensor contraction.
+[warn]     Please note that this may be a false negative.
+The two circuits are not equivalent!!
+
+qsyn> qc eq 1 2
+[info]     Trying to verify equivalence via tableau optimization...
+[info]     1: Reduced the number of non-Clifford gates from 156 to 0.
+[info]     2: Reduced the number of non-Clifford gates from 0 to 0.
+The two circuits are equivalent!!
+
+qsyn> qc eq 3 2
+[info]     Trying to verify equivalence via tableau optimization...
+[info]     1: Reduced the number of non-Clifford gates from 156 to 0.
+[info]     2: Reduced the number of non-Clifford gates from 0 to 0.
+The two circuits are equivalent!!
+
+qsyn> 
+qsyn> 
+qsyn> // eq check with zx
+qsyn> qc checkout 0
+[info]     Checked out to QCir 0
+
+qsyn> qc2zx
+[info]     Converting to QCir 0 to ZXGraph 0...
+[info]     Successfully created and checked out to ZXGraph 0
+
+qsyn> qc checkout 1
+[info]     Checked out to QCir 1
+
+qsyn> qc2zx
+[info]     Converting to QCir 1 to ZXGraph 1...
+[info]     Successfully created and checked out to ZXGraph 1
+
+qsyn> qc checkout 2
+[info]     Checked out to QCir 2
+
+qsyn> qc2zx
+[info]     Converting to QCir 2 to ZXGraph 2...
+[info]     Successfully created and checked out to ZXGraph 2
+
+qsyn> 
+qsyn> // 0 1
+qsyn> zx checkout 0
+[info]     Checked out to ZXGraph 0
+
+qsyn> zx copy
+[info]     Successfully copied ZXGraph 0 to ZXGraph 3
+[info]     Checked out to ZXGraph 3
+
+qsyn> zx adj
+
+qsyn> zx compose 1
+
+qsyn> zx optimize
+[info]     Hadamard Rule                 1 iterations, total   56 matches
+[info]     Spider Fusion Rule           10 iterations, total 1027 matches
+[info]     Identity Removal Rule         1 iterations, total    3 matches
+[info]     Spider Fusion Rule            1 iterations, total    3 matches
+[info]     Pivot Rule                    8 iterations, total  144 matches
+[info]     Local Complementation Rule   61 iterations, total   90 matches
+[info]     Identity Removal Rule         1 iterations, total    4 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    1 iterations, total    1 matches
+[info]     Pivot Gadget Rule            11 iterations, total  220 matches
+[info]     Identity Removal Rule         1 iterations, total   29 matches
+[info]     Spider Fusion Rule            1 iterations, total   13 matches
+[info]     Local Complementation Rule    6 iterations, total    6 matches
+[info]     Identity Removal Rule         1 iterations, total    4 matches
+[info]     Phase Gadget Rule             1 iterations, total   76 matches
+[info]     Identity Removal Rule         1 iterations, total   13 matches
+[info]     Spider Fusion Rule            1 iterations, total   13 matches
+[info]     Pivot Rule                    3 iterations, total   20 matches
+[info]     Local Complementation Rule   10 iterations, total   50 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Pivot Rule                    2 iterations, total    4 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Pivot Gadget Rule             1 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Phase Gadget Rule             1 iterations, total   10 matches
+
+qsyn> zx test -i
+The graph is not an identity!
+
+qsyn> zx print
+Graph (30 inputs, 30 outputs, 347 vertices, 910 edges)
+
+qsyn> 
+qsyn> // 0 2
+qsyn> zx checkout 0
+[info]     Checked out to ZXGraph 0
+
+qsyn> zx copy
+[info]     Successfully copied ZXGraph 0 to ZXGraph 4
+[info]     Checked out to ZXGraph 4
+
+qsyn> zx adj
+
+qsyn> zx compose 2
+
+qsyn> zx optimize
+[info]     Hadamard Rule                 2 iterations, total   86 matches
+[info]     Spider Fusion Rule           11 iterations, total 1195 matches
+[info]     Identity Removal Rule         1 iterations, total    3 matches
+[info]     Spider Fusion Rule            1 iterations, total    3 matches
+[info]     Pivot Rule                    5 iterations, total  110 matches
+[info]     Local Complementation Rule   32 iterations, total  114 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    2 iterations, total    6 matches
+[info]     Pivot Gadget Rule            11 iterations, total  223 matches
+[info]     Identity Removal Rule         1 iterations, total   29 matches
+[info]     Spider Fusion Rule            1 iterations, total   16 matches
+[info]     Pivot Rule                    2 iterations, total    5 matches
+[info]     Local Complementation Rule    8 iterations, total    8 matches
+[info]     Identity Removal Rule         1 iterations, total    6 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    1 iterations, total    1 matches
+[info]     Phase Gadget Rule             1 iterations, total   84 matches
+[info]     Identity Removal Rule         1 iterations, total   15 matches
+[info]     Spider Fusion Rule            1 iterations, total   15 matches
+[info]     Pivot Rule                    3 iterations, total   25 matches
+[info]     Local Complementation Rule    6 iterations, total   38 matches
+[info]     Identity Removal Rule         2 iterations, total    4 matches
+[info]     Pivot Rule                    1 iterations, total    1 matches
+[info]     Pivot Gadget Rule             1 iterations, total    1 matches
+
+qsyn> zx test -i
+The graph is not an identity!
+
+qsyn> zx print
+Graph (30 inputs, 30 outputs, 345 vertices, 957 edges)
+
+qsyn> 
+qsyn> // 1 2
+qsyn> zx checkout 1
+[info]     Checked out to ZXGraph 1
+
+qsyn> zx copy
+[info]     Successfully copied ZXGraph 1 to ZXGraph 5
+[info]     Checked out to ZXGraph 5
+
+qsyn> zx adj
+
+qsyn> zx compose 2
+
+qsyn> zx optimize
+[info]     Hadamard Rule                 2 iterations, total   86 matches
+[info]     Spider Fusion Rule           11 iterations, total 1798 matches
+[info]     Identity Removal Rule         2 iterations, total   13 matches
+[info]     Spider Fusion Rule            1 iterations, total   11 matches
+[info]     Pivot Rule                    9 iterations, total  254 matches
+[info]     Local Complementation Rule   87 iterations, total  204 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    2 iterations, total    8 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    3 matches
+[info]     Pivot Gadget Rule            10 iterations, total  106 matches
+[info]     Identity Removal Rule         1 iterations, total   11 matches
+[info]     Spider Fusion Rule            1 iterations, total    9 matches
+[info]     Pivot Rule                    6 iterations, total   10 matches
+[info]     Local Complementation Rule    3 iterations, total    4 matches
+[info]     Identity Removal Rule         1 iterations, total    7 matches
+[info]     Spider Fusion Rule            1 iterations, total    6 matches
+[info]     Pivot Rule                    2 iterations, total    3 matches
+[info]     Local Complementation Rule    4 iterations, total    4 matches
+[info]     Identity Removal Rule         2 iterations, total    7 matches
+[info]     Spider Fusion Rule            1 iterations, total    2 matches
+[info]     Phase Gadget Rule             1 iterations, total   24 matches
+[info]     Identity Removal Rule         1 iterations, total    3 matches
+[info]     Spider Fusion Rule            1 iterations, total    3 matches
+[info]     Pivot Rule                    2 iterations, total    3 matches
+[info]     Identity Removal Rule         2 iterations, total    3 matches
+[info]     Pivot Gadget Rule             4 iterations, total    4 matches
+[info]     Identity Removal Rule         1 iterations, total   12 matches
+[info]     Spider Fusion Rule            1 iterations, total    7 matches
+[info]     Pivot Rule                    4 iterations, total    8 matches
+[info]     Local Complementation Rule    4 iterations, total    4 matches
+[info]     Identity Removal Rule         1 iterations, total    5 matches
+[info]     Spider Fusion Rule            1 iterations, total    5 matches
+[info]     Pivot Rule                    2 iterations, total    2 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Spider Fusion Rule            1 iterations, total    2 matches
+[info]     Pivot Rule                    2 iterations, total    3 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         2 iterations, total    7 matches
+[info]     Spider Fusion Rule            2 iterations, total    3 matches
+[info]     Pivot Rule                    1 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    3 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    2 iterations, total    2 matches
+[info]     Phase Gadget Rule             1 iterations, total   16 matches
+[info]     Identity Removal Rule         1 iterations, total   10 matches
+[info]     Spider Fusion Rule            1 iterations, total   10 matches
+[info]     Pivot Rule                    3 iterations, total    7 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    1 iterations, total    1 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    6 matches
+[info]     Spider Fusion Rule            1 iterations, total    4 matches
+[info]     Pivot Rule                    2 iterations, total    2 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total   11 matches
+[info]     Spider Fusion Rule            1 iterations, total    6 matches
+[info]     Pivot Rule                    2 iterations, total    2 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    5 matches
+[info]     Spider Fusion Rule            2 iterations, total    3 matches
+[info]     Pivot Rule                    1 iterations, total    2 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         2 iterations, total    6 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Pivot Gadget Rule             2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    5 matches
+[info]     Spider Fusion Rule            1 iterations, total    2 matches
+[info]     Pivot Rule                    2 iterations, total    2 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Spider Fusion Rule            1 iterations, total    1 matches
+[info]     Pivot Rule                    1 iterations, total    1 matches
+[info]     Identity Removal Rule         1 iterations, total    1 matches
+[info]     Phase Gadget Rule             1 iterations, total    6 matches
+[info]     Identity Removal Rule         1 iterations, total    5 matches
+[info]     Spider Fusion Rule            1 iterations, total    5 matches
+[info]     Local Complementation Rule    2 iterations, total    2 matches
+[info]     Identity Removal Rule         1 iterations, total    2 matches
+[info]     Spider Fusion Rule            1 iterations, total    2 matches
+[info]     Pivot Rule                    3 iterations, total    3 matches
+[info]     Identity Removal Rule         2 iterations, total    9 matches
+
+qsyn> zx test -i
+The graph is an identity!
+
+qsyn> zx print
+Graph (30 inputs, 30 outputs, 60 vertices, 30 edges)
+
+qsyn> 
+qsyn> zx list
+  0    csum_mux_9          QC2ZX
+  1                        TABL2QC ➔ QC2ZX
+  2                        TABL2QC ➔ QC2TABL ➔ TABL2QC ➔ QC2ZX
+  3    csum_mux_9          QC2ZX ➔ FR
+  4    csum_mux_9          QC2ZX ➔ FR
+★ 5                        TABL2QC ➔ QC2ZX ➔ FR
+
+qsyn> quit -f
+

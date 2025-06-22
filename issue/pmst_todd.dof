@@ -1,0 +1,71 @@
+//!ARGS IN_QASM OUT_QASM OUT_QASM_BACKWARD
+qcir read ${IN_QASM}
+qcir print
+convert qcir tableau
+tableau print
+tableau optimize full
+tableau print
+usage
+tabl2qc -r mst -c hopt -l
+qc write issue/logs/lazy.qasm
+qc2tabl
+usage
+logger info
+convert tableau qcir --rotation pmst -c ag
+logger off
+usage
+qc list
+qc print
+qc write ${OUT_QASM}
+logger info
+convert tableau qcir --rotation pmst -c ag -b
+//logger off
+qc write ${OUT_QASM_BACKWARD}
+qc list
+qc print
+
+// eq check with tableau
+qc eq 0 1
+qc eq 0 2
+qc eq 0 3
+qc eq 1 2
+qc eq 3 2
+
+
+// eq check with zx
+qc checkout 0
+qc2zx
+qc checkout 1
+qc2zx
+qc checkout 2
+qc2zx
+
+// 0 1
+zx checkout 0
+zx copy
+zx adj
+zx compose 1
+zx optimize
+zx test -i
+zx print
+
+// 0 2
+zx checkout 0
+zx copy
+zx adj
+zx compose 2
+zx optimize
+zx test -i
+zx print
+
+// 1 2
+zx checkout 1
+zx copy
+zx adj
+zx compose 2
+zx optimize
+zx test -i
+zx print
+
+zx list
+quit -f
